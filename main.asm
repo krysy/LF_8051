@@ -1,0 +1,4 @@
+ORG 0H
+MOV P1,#0
+	
+END
