@@ -1,4 +1,10 @@
 ORG 0H
-MOV P1,#0
-	
+	MOV A,P2
+	RL A
+	RL A
+	CPL A
+	MOV P3, A
+	CLR P1.2
+	CLR P1.4
+	SJMP 0H	
 END
