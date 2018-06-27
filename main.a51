@@ -1,109 +1,91 @@
+;-----variables
+PWM1 DATA 0x20
+PWM2 DATA 0x21
+
+
 ORG 0H
-	SJMP 30H
-	
-ORG 0BH				;timer0 overflow interrupt vector
-	MOV TH0,#0x3C		;reset timer
-	MOV TL0,#0xB0 
-	LJMP BLINKENLIGHTS
+	SJMP 30H ;jump to init
 
-ORG 1BH 			;timer1 overflow interrupt vector
-	LJMP MOTOPWM
+
+ORG 0BH;;timer0 interrupt vector
+	LJMP MOTOPWM1OFF
 	
+ORG 23H;;serial interrupt vector
+	MOV SBUF,#0x30
+	CLR 0x99
+	RETI
+	
+ORG 2BH;;timer2 interrupt vector
+	LJMP MOTOPWM2OFF
+
+;---------init everything
 ORG 30H
-	MOV TMOD,#33		;enable timer0 and timer1 in 16-bit mode
-	MOV IE,#138		;enable timer0 and timer 1 overflow interrupt
-	SETB TR0		;turn on timer0
-	MOV TH0,#0x3C		;set timer0 to overflow every 50ms
-	MOV TL0,#0xB0
-	MOV R7,#5		;count number of overflows, 250ms
-
-	MOV TH1, #0x00
-	SETB 0x7F
+	;setup UART
+	MOV PCON, #0x80 ;;set SMOD, double data rate
+	MOV SCON, #0x50 ;;set SCON, SMODE 1, REN, RI, TI
+	MOV TMOD, #0x22 ;;8-bit auto reload from TH1
+	MOV TH1, #0xF2 	;;4800 baud with DDR
+	;;start all timers
 	SETB TR1
-	
-	SJMP LOOP
-	
-LOOP:	
-	ACALL SLEDS
+	SETB TR0
+	SETB TR2
 
-	JB P2.2, MOTOFWD
-	JB P2.3, MOTOL
-	JB P2.1, MOTOR
-	
-	ACALL MOTOSTOP
-	SJMP LOOP	
-SLEDS:				;get sensors status and show on leds
- 	MOV A, P2
-	RL A
-	RL A
-	CPL A
-	MOV P3, A
-	RET
-	
-MOTOFWD:			;set motors to go forward
-	SETB P1.1
-	CLR P1.2
-	SETB P1.3
-	CLR P1.4
-	SJMP LOOP
-MOTOBWD:			;motor backwards
-	CLR P1.1
-	SETB P1.2
-	CLR P1.3
-	SETB P1.4
-	RET
-MOTOR:				;motor right
-	SETB P1.1
-	CLR P1.2
-	CLR P1.3
-	CLR P1.4
-	SJMP LOOP
-MOTOL:				;motor left
-	CLR P1.1
-	CLR P1.2
-	SETB P1.3
-	CLR P1.4
-	SJMP LOOP
-MOTOSR:				;motor sharp right
-	SETB P1.1
-	CLR P1.2
-	CLR P1.3
-	SETB P1.4
-	SJMP LOOP
-MOTOSL:				;motor sharp left
+	;;setup timer 2 values
+	MOV RCAP2H, #0xFF
+	MOV RCAP2L, #0xFE
+	MOV TH2, #0xFF
 
-	CLR P1.1
-	SETB P1.2
-	SETB P1.3
-	CLR P1.4
-	SJMP LOOP
-MOTOSTOP:
-	CLR P1.1
-	CLR P1.2
-	CLR P1.3
-	CLR P1.4
-	SJMP LOOP
+	MOV IE,#0xB2	;;enable serial interrupt, timer0&2 interrupt
+
+	MOV SBUF, #0x10
+	LJMP LOOP
 	
-MOTOPWM:			;needed to setup PWM because one motor is faster
-	JB 0x7F,MOTOPWMON
-	CLR P0.2
-	SETB 0x7F
-	MOV TH1,#0x00
-	RETI
-MOTOPWMON:
-	SETB P0.2
-	CLR 0x7F
-	MOV TH1,#0xAF
-	RETI
+;-------main loop
+LOOP:
+	MOV PWM1, #0
+	MOV PWM2, #0
+		
 
 
-BLINKENLIGHTS:
-	DEC R7			    ;count down to 0
-	CJNE R7,#0,ABANDONINTERRUPT ;if R7 doesn't equal 0, jump to ABANDONINTERRUPT
-	CPL P1.0		;toggle LED
-	MOV R7,#5		;reset counter
+
+	SJMP LOOP
+
+;Sacrificing timers for PWM
+;if PWM1 or PWM2 is 0, the duty cycle is 50%
+;if they are 255, the duty cycle is ~95%
+;------PWM1
+MOTOPWM1OFF:	
+	CLR TR0				;stop timer0	
+	JB P0.0,MOTOPWM1ON	;jump if pin set
+	SETB P0.0			;set pin
+	CLR C				;clear carry bit, so it doesn't interfere
+	MOV A, #0xFF		;move 255 to A
+	SUBB A, PWM1		;subtract PWM1 from A
+	MOV TH0,A			;move result from A to TH0
+	SETB TR0			;start timer
+	RETI				;return from interrupt
+MOTOPWM1ON:
+	CLR P0.0			;clear pin
+	MOV TH0,#0x00		;move 0 to TH0
+	SETB TR0			;start timer
+	RETI				;return from interrupt
+
+;------PWM2
+MOTOPWM2OFF:	
+	CLR TR2		
+	JB P0.1,MOTOPWM2ON
+	SETB P0.1
+	MOV A, #0xFF
+	SUBB A, PWM2
+	MOV RCAP2L,A
+	CLR TF2 ;;clear timer 2 interrupt
+	SETB TR2
 	RETI
-	
-ABANDONINTERRUPT:
-	RETI
+MOTOPWM2ON:
+	CLR P0.1
+	MOV RCAP2L,#0x00
+	CLR TF2 ;;clear timer 2 interrupt
+	SETB TR2
+	RETI	
+
 END
