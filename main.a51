@@ -11,8 +11,8 @@ ORG 0BH;;timer0 interrupt vector
 	LJMP MOTOPWM1OFF
 	
 ORG 23H;;serial interrupt vector
-	MOV SBUF,#0x30
-	CLR 0x99
+	JB RI, URX
+	JB TI, UTX
 	RETI
 	
 ORG 2BH;;timer2 interrupt vector
@@ -35,9 +35,8 @@ ORG 30H
 	MOV RCAP2L, #0xFE
 	MOV TH2, #0xFF
 
-	MOV IE,#0xB2	;;enable serial interrupt, timer0&2 interrupt
-
-	MOV SBUF, #0x10
+	MOV IE,#0xB2	;;enable serial interrupt, timer0&2 
+	
 	LJMP LOOP
 	
 ;-------main loop
@@ -49,7 +48,32 @@ LOOP:
 
 
 	SJMP LOOP
+	
+;;-----------serial port 
+;;serial transmit handle
+UTX:
+	CLR TI
+	RETI
+;;serial receive handle
+URX:
+	;; if first byte = 0x30, continue receiving, else dump everything
 
+	MOV 0x2
+	
+	MOV A,  SBUF
+	XRL A, #0x30	     ;XOR SBUF with 0x20, to compare themxs
+	JZ A, FIRSTURX 		;first byte is not 0x20, break innterrupt
+	
+
+
+	CLR RI
+	RETI
+FIRSTURX:
+	
+	
+BREAKURX:
+	CLR RI
+	RETI
 ;Sacrificing timers for PWM
 ;if PWM1 or PWM2 is 0, the duty cycle is 50%
 ;if they are 255, the duty cycle is ~95%
