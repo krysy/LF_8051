@@ -1,7 +1,8 @@
 ;-----variables
 PWM1 DATA 0x20
 PWM2 DATA 0x21
-
+MOTO DATA 0x22
+URXR DATA 0x2F ;rx helper
 
 ORG 0H
 	SJMP 30H ;jump to init
@@ -36,14 +37,20 @@ ORG 30H
 	MOV TH2, #0xFF
 
 	MOV IE,#0xB2	;;enable serial interrupt, timer0&2 
-	
+	MOV PWM1, #0
+	MOV PWM2, #0
+
+	SETB P1.1
+	CLR P1.2
+	SETB P1.3
+	CLR P1.4
+
+	MOV URXR, #0
 	LJMP LOOP
 	
 ;-------main loop
 LOOP:
-	MOV PWM1, #0
-	MOV PWM2, #0
-		
+	MOV P3, PWM1
 
 
 
@@ -56,21 +63,30 @@ UTX:
 	RETI
 ;;serial receive handle
 URX:
-	;; if first byte = 0x30, continue receiving, else dump everything
-
-	MOV 0x2
-	
+	JB 0x78,FIRSTURX ;receiving first byte
+	JB 0x79, SCNDURX ;receiving second byte
+	JB 0x7A, TRDURX ;receiving third byte
 	MOV A,  SBUF
-	XRL A, #0x30	     ;XOR SBUF with 0x20, to compare themxs
-	JZ A, FIRSTURX 		;first byte is not 0x20, break innterrupt
-	
-
-
+	XRL A, #0x30	     ;XOR SBUF with 0x30, to compare them
+	JNZ  BREAKURX		;first byte is not 0x30, break interrupt
+	MOV URXR, #1
 	CLR RI
 	RETI
 FIRSTURX:
-	
-	
+	MOV PWM1, SBUF
+	MOV URXR, #2
+	CLR RI
+	RETI
+SCNDURX:
+	MOV PWM2, SBUF
+	MOV URXR, #4
+	CLR RI
+	RETI
+TRDURX:
+	MOV P1, SBUF
+	MOV URXR, #0
+	CLR RI
+	RETI
 BREAKURX:
 	CLR RI
 	RETI
@@ -80,8 +96,8 @@ BREAKURX:
 ;------PWM1
 MOTOPWM1OFF:	
 	CLR TR0				;stop timer0	
-	JB P0.0,MOTOPWM1ON	;jump if pin set
-	SETB P0.0			;set pin
+	JNB P0.2,MOTOPWM1ON	;jump if pin set
+	CLR P0.2			;set pin
 	CLR C				;clear carry bit, so it doesn't interfere
 	MOV A, #0xFF		;move 255 to A
 	SUBB A, PWM1		;subtract PWM1 from A
@@ -89,16 +105,16 @@ MOTOPWM1OFF:
 	SETB TR0			;start timer
 	RETI				;return from interrupt
 MOTOPWM1ON:
-	CLR P0.0			;clear pin
-	MOV TH0,#0x00		;move 0 to TH0
+	SETB P0.2			;clear pin
+	MOV TH0,#235		;move 0 to TH0
 	SETB TR0			;start timer
 	RETI				;return from interrupt
 
 ;------PWM2
 MOTOPWM2OFF:	
 	CLR TR2		
-	JB P0.1,MOTOPWM2ON
-	SETB P0.1
+	JNB P0.1,MOTOPWM2ON
+	CLR P0.1
 	MOV A, #0xFF
 	SUBB A, PWM2
 	MOV RCAP2L,A
@@ -106,8 +122,8 @@ MOTOPWM2OFF:
 	SETB TR2
 	RETI
 MOTOPWM2ON:
-	CLR P0.1
-	MOV RCAP2L,#0x00
+	SETB P0.1
+	MOV RCAP2L,#235
 	CLR TF2 ;;clear timer 2 interrupt
 	SETB TR2
 	RETI	
